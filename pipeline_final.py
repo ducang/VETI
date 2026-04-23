@@ -129,7 +129,7 @@ def run_soft_color_seg(
         neighborhood_radius=neighborhood_radius,
         return_debug=False,
     )
-    color_distr_np, _ = color_model_out
+    color_distr_np = color_model_out
 
     if len(color_distr_np) == 0:
         raise RuntimeError("Colour model extraction produced zero distributions.")
