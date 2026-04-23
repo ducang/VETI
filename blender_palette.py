@@ -1,20 +1,3 @@
-#!/usr/bin/env python3
-"""Build a Blender scene from the pipeline output directory.
-
-Reads `scene_config.json` (scene structure — colors, texture paths, object
-names, intrinsics) and `materials.json` (editable per-object material values)
-from the output directory, then assembles a mesh with a palette-based
-Principled BSDF material, 3-point lighting, an orbit light, and a procedural
-sky world.
-
-The Principled BSDF is placed directly on the material (no wrapping node
-group), so you can swap it for another shader (Toon, Diffuse, etc.) via the
-Material Properties → Surface dropdown.
-
-Usage:
-    blender --background --python blender_palette.py -- --output_dir <dir>
-"""
-
 import bpy
 import json
 import math
