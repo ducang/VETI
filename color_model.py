@@ -26,10 +26,10 @@ def approx_RepScore(c, mus, sigma_invs_reg, tau):
         return torch.full((c.shape[0],), tau ** 2 + 1, device=DEVICE, dtype=DTYPE)
     return _mahalanobis(c, mus, sigma_invs_reg)
 
-def _get_vote(gradMag, repScore):
+def get_vote(gradMag, repScore):
     return torch.exp(-gradMag) * (1.0 - torch.exp(-repScore))
 
-def _pick_seed(bin_indices, gradMag, best_bin, active_mask):
+def pick_seed(bin_indices, gradMag, best_bin, active_mask):
     H, W = gradMag.shape
     match = (
         (bin_indices[:, :, 0] == best_bin[0])
@@ -49,7 +49,7 @@ def _pick_seed(bin_indices, gradMag, best_bin, active_mask):
     flat_idx = score.argmax()
     return int(flat_idx // W), int(flat_idx % W)
 
-def _estimate_normal(im, seed, gf, neighborhood_radius):
+def estimate_normal(im, seed, gf, neighborhood_radius):
     H, W, _ = im.shape
     y, x = seed
 
@@ -138,7 +138,7 @@ def extract_color_model(
 
         active = ~represented_mask
         vp = torch.zeros(H, W, device=DEVICE, dtype=DTYPE)
-        vp[active] = _get_vote(gradMag[active], repScore[active])
+        vp[active] = get_vote(gradMag[active], repScore[active])
 
         bins_flat = torch.zeros(1000, device=DEVICE, dtype=DTYPE)
         bins_flat.scatter_add_(0, flat_bin[active].reshape(-1), vp[active].reshape(-1))
@@ -150,11 +150,11 @@ def extract_color_model(
         if bins[best_bin].item() < min_vote:
             break
 
-        seed = _pick_seed(bin_indices, gradMag, best_bin, active)
+        seed = pick_seed(bin_indices, gradMag, best_bin, active)
         if seed is None:
             break
 
-        result = _estimate_normal(im, seed, gf, neighborhood_radius)
+        result = estimate_normal(im, seed, gf, neighborhood_radius)
         if result is None:
             break
 
