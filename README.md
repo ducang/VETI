@@ -123,8 +123,8 @@ In blender, select the mesh and go to Shader Editor to inspect color swatches an
 |------|---------|--------|
 | `--tau` | 5.0 | Colour threshold — lower → more palette layers |
 | `--min_vote` | 100 | Higher → fewer layers |
-| `--min_eig_scu` | 5e-3 | SCU covariance floor; higher → less leaking, fewer distinct colours |
-| `--min_eig_rep` | 5e-3 | Rep covariance floor; higher → more colours |
+| `--min_eig_scu` | 5e-3 | SCU covariance floor; higher → less leaking |
+| `--min_eig_rep` | 1e-3 | Rep covariance floor; lower → more colours |
 | `--gf_eps` | 1e-2 | Guided-filter epsilon for colour-model estimation |
 | `--moge_model` | `Ruicheng/moge-2-vitl-normal` | HuggingFace MoGe checkpoint |
 | `--device` | `cuda` | Falls back to CPU if CUDA is unavailable |
