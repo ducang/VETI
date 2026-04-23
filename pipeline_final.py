@@ -18,14 +18,16 @@ from colorunmixing import (
     solver_SCU, matte_regu, color_refine, distr_to_torch,
     DEVICE as UNMIX_DEVICE, DTYPE as UNMIX_DTYPE,
 )
+
+REPO_ROOT = Path(__file__).resolve().parent
+sys.path.insert(0, str(REPO_ROOT))
+sys.path.insert(0, str(REPO_ROOT / "MoGe"))
+
 from moge.model.v2 import MoGeModel
 from intrinsic.pipeline import load_models as load_intrinsic_models
 from intrinsic.pipeline import run_pipeline as run_intrinsic_pipeline
 
-REPO_ROOT = Path(__file__).resolve().parent
-sys.path.insert(0, str(REPO_ROOT))
-sys.path.insert(0, str(REPO_ROOT / "FSCS" / "src"))
-sys.path.insert(0, str(REPO_ROOT / "MoGe"))
+
 
 ALPHA_THRESHOLD = 1 / 255.0
 MESH_DEPTH_EDGE_RTOL = 0.02
@@ -44,14 +46,6 @@ BSDF_SOCKET_CANDIDATES = {
     "metallic": ["Metallic"],
     "specular": ["Specular IOR Level", "Specular"],
 }
-
-MATERIAL_PRESETS = [
-    {"preset": "chalk", "roughness": 1.00, "metallic": 0.0, "specular": 0.00},
-    {"preset": "matte", "roughness": 0.90, "metallic": 0.0, "specular": 0.15},
-    {"preset": "plastic", "roughness": 0.40, "metallic": 0.0, "specular": 0.50},
-    {"preset": "brushed_metal", "roughness": 0.40, "metallic": 1.0, "specular": 0.50},
-    {"preset": "mirror", "roughness": 0.02, "metallic": 1.0, "specular": 1.00},
-]
 
 
 def extract_albedo(img_bgr, out_dir, input_alpha=None):
@@ -114,7 +108,7 @@ def run_soft_color_seg(
 
     color_distr = color_model_out
 
-    if not return_debug :
+    if return_debug :
         color_distr, _ = color_model_out
 
     if len(color_distr) == 0:
@@ -172,7 +166,7 @@ def run_soft_color_seg(
         cv2.imwrite(str(layers_dir / f"layer-{i:02d}.png"), bgra_u8)
         cv2.imwrite(str(layers_dir / f"alpha-{i:02d}.png"), a_u8)
 
-    clipped_mus = np.clip(np.array([d["mu"] for d in color_distr]), 0.0, 1.0)
+    clipped_mus = np.clip(np.array([d["mu"].cpu() for d in color_distr]), 0.0, 1.0)
     swatch = np.zeros((50, N * 80, 3), dtype=np.uint8)
     for i, mu in enumerate(clipped_mus):
         swatch[:, i * 80:(i + 1) * 80] = (mu * 255.0).astype(np.uint8)
@@ -281,12 +275,6 @@ def write_materials_json(out_dir, obj_names):
     print(f"Wrote materials.json ({len(materials)} entries)")
     return materials
 
-
-def write_material_presets(out_dir):
-    mp = out_dir / "materials_presets.json"
-    with open(mp, "w") as f:
-        json.dump(MATERIAL_PRESETS, f, indent=2)
-    print(f"Wrote {len(MATERIAL_PRESETS)} material presets")
 
 
 def build_mesh(image_path, out_dir, moge_model_name, device, no_edge_cull=False, fill_mask=False):
@@ -463,7 +451,6 @@ def main():
     print("\n[5/6] Object masks + materials...")
     obj_paths, obj_names = export_object_masks(Path(args.mask_dir), out, (h, w))
     materials = write_materials_json(out, obj_names)
-    write_material_presets(out)
 
     print("\n[6/6] Writing Blender scene config...")
     write_scene_config(out, palette, h, w, intrinsics, obj_paths, materials)

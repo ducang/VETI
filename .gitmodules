@@ -1,0 +1,6 @@
+[submodule "MoGe"]
+	path = MoGe
+	url = git@github.com:microsoft/MoGe.git
+[submodule "Intrinsic"]
+	path = Intrinsic
+	url = git@github.com:compphoto/Intrinsic.git
