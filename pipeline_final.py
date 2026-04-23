@@ -14,7 +14,6 @@ Given an input photograph and per-object segmentation masks, this script:
 import argparse
 import json
 import math
-import os
 import shutil
 import sys
 import time
@@ -26,10 +25,12 @@ import numpy as np
 import torch
 import trimesh
 import utils3d
-from torchvision.utils import save_image
 
 from color_model import extract_color_model
-from colorunmixing import (solver_SCU, matte_regu, color_refine, distr_to_torch,DEVICE as UNMIX_DEVICE, DTYPE as UNMIX_DTYPE,)
+from colorunmixing import (
+    solver_SCU, matte_regu, color_refine, distr_to_torch,
+    DEVICE as UNMIX_DEVICE, DTYPE as UNMIX_DTYPE,
+)
 from moge.model.v2 import MoGeModel
 from intrinsic.pipeline import load_models as load_intrinsic_models
 from intrinsic.pipeline import run_pipeline as run_intrinsic_pipeline
@@ -42,7 +43,6 @@ sys.path.insert(0, str(REPO_ROOT / "MoGe"))
 ALPHA_THRESHOLD = 1 / 255.0
 MESH_DEPTH_EDGE_RTOL = 0.02
 
-# Material channels exposed as per-object sliders in the Blender shader.
 DEFAULT_MATERIAL = {
     "roughness": 0.7, 
     "metallic": 0.0, 
@@ -67,13 +67,10 @@ MATERIAL_PRESETS = [
 ]
 
 
-
-
 def extract_albedo(img_bgr, out_dir, input_alpha=None):
     intrinsic_model = load_intrinsic_models('v2')
 
     alb = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB).astype(np.float32) / 255.0
-    
     results = run_intrinsic_pipeline(intrinsic_model, alb)
 
     albedo_rgb = np.clip(results['hr_alb'], 0.0, 1.0).astype(np.float32)
@@ -85,10 +82,8 @@ def extract_albedo(img_bgr, out_dir, input_alpha=None):
         albedo_rgb = albedo_rgb * alpha[:, :, None]
 
     albedo_bgr = (cv2.cvtColor(albedo_rgb, cv2.COLOR_RGB2BGR) * 255).round().astype(np.uint8)
-    
     cv2.imwrite(str(out_dir / "albedo.png"), albedo_bgr)
-    print(f"  Albedo saved -> {out_dir}/albedo.png")
-    
+    print(f"  albedo -> {out_dir}/albedo.png")
     return albedo_bgr
 
 
@@ -195,13 +190,12 @@ def run_soft_color_seg(
     swatch = np.zeros((50, N * 80, 3), dtype=np.uint8)
     for i, mu in enumerate(clipped_mus):
         swatch[:, i * 80:(i + 1) * 80] = (mu * 255.0).astype(np.uint8)
-    cv2.imwrite(str(layers_dir / "palette.png"),cv2.cvtColor(swatch, cv2.COLOR_RGB2BGR),)
+    cv2.imwrite(str(layers_dir / "palette.png"), cv2.cvtColor(swatch, cv2.COLOR_RGB2BGR))
 
     print(f"  Saved {N} layers + reconstruction -> {layers_dir}/")
 
-    alpha_t = torch.from_numpy(final_alphas.transpose(2, 0, 1).astype(np.float32)).unsqueeze(1).to(return_device)  
-
-    rgb_layers_t = torch.from_numpy(np.clip(final_colors, 0.0, 1.0).transpose(2, 3, 0, 1).astype(np.float32)).to(return_device)  
+    alpha_t = torch.from_numpy(final_alphas.transpose(2, 0, 1).astype(np.float32)).unsqueeze(1).to(return_device)
+    rgb_layers_t = torch.from_numpy(np.clip(final_colors, 0.0, 1.0).transpose(2, 3, 0, 1).astype(np.float32)).to(return_device)
 
     palette = [
         {
@@ -259,7 +253,7 @@ def export_object_masks(mask_dir, out_dir, image_hw):
         else:
             masks.append(m)
             obj_names.append(semantic)
-   
+
     rel_paths = []
     accum = np.zeros((h, w), np.float32)
     for name, m in zip(obj_names, masks):
@@ -282,10 +276,11 @@ def write_materials_json(out_dir, obj_names):
     mp = out_dir / "materials.json"
     existing = {}
     if mp.exists():
-        for entry in json.load(open(mp)):
-            key = entry.get("name") or str(entry.get("object_id", ""))
-            if key:
-                existing[key] = entry
+        with open(mp) as f:
+            for entry in json.load(f):
+                key = entry.get("name") or str(entry.get("object_id", ""))
+                if key:
+                    existing[key] = entry
 
     materials = []
     for name in obj_names:
@@ -295,13 +290,16 @@ def write_materials_json(out_dir, obj_names):
             entry.setdefault(k, v)
         materials.append(entry)
 
-    json.dump(materials, open(mp, "w"), indent=2)
+    with open(mp, "w") as f:
+        json.dump(materials, f, indent=2)
     print(f"  Wrote materials.json ({len(materials)} entries)")
     return materials
 
+
 def write_material_presets(out_dir):
     mp = out_dir / "materials_presets.json"
-    json.dump(MATERIAL_PRESETS, open(mp, "w"), indent=2)
+    with open(mp, "w") as f:
+        json.dump(MATERIAL_PRESETS, f, indent=2)
     print(f"  Wrote {len(MATERIAL_PRESETS)} material presets")
 
 
@@ -367,13 +365,11 @@ def build_mesh(image_path, out_dir, moge_model_name, device,
 
     seam_mask = cv2.dilate(seam_mask, np.ones((7, 7), np.uint8), iterations=1)
 
-    seam_mask_path = mesh_dir / "seam_mask.png"
-
-    cv2.imwrite(str(seam_mask_path), cv2.flip(seam_mask, 0))
+    cv2.imwrite(str(mesh_dir / "seam_mask.png"), cv2.flip(seam_mask, 0))
     tmesh = trimesh.Trimesh(vertices=verts, faces=faces, vertex_colors=rgba, vertex_normals=vnormals, process=False)
 
     tex_path = mesh_dir / "base_texture.png"
-    cv2.imwrite(str(tex_path), cv2.flip(bgr, 0)) 
+    cv2.imwrite(str(tex_path), cv2.flip(bgr, 0))
     material = trimesh.visual.material.PBRMaterial(baseColorTexture=PILImage.open(str(tex_path)), metallicFactor=0.0, roughnessFactor=0.5)
     tmesh.visual = trimesh.visual.TextureVisuals(uv=vuvs, material=material)
 
@@ -383,11 +379,11 @@ def build_mesh(image_path, out_dir, moge_model_name, device,
     print(f"  Saved mesh -> {glb_path}")
     return intrinsics, h, w
 
+
 BLENDER_SCRIPT = REPO_ROOT / "blender_palette.py"
 
+
 def write_scene_config(out_dir, palette, h, w, intrinsics, obj_mask_paths, materials):
-    """Write scene_config.json consumed by blender_palette.py, and copy the
-    script into the output directory so the output bundle is self-contained."""
     config = {
         "num_layers": len(palette),
         "colors": [[*entry["color_rgb"], 1.0] for entry in palette],
@@ -402,8 +398,9 @@ def write_scene_config(out_dir, palette, h, w, intrinsics, obj_mask_paths, mater
         "bsdf_socket_candidates": BSDF_SOCKET_CANDIDATES,
         "default_material": DEFAULT_MATERIAL,
     }
-    json.dump(config, open(out_dir / "scene_config.json", "w"), indent=2)
-    print(f"  Wrote scene_config.json")
+    with open(out_dir / "scene_config.json", "w") as f:
+        json.dump(config, f, indent=2)
+    print("  Wrote scene_config.json")
 
     shutil.copy2(BLENDER_SCRIPT, out_dir / BLENDER_SCRIPT.name)
     print(f"  Copied {BLENDER_SCRIPT.name} -> {out_dir}/")
@@ -417,6 +414,7 @@ def load_image_with_alpha(img_path):
     if raw.shape[2] == 4:
         return raw[:, :, :3], raw[:, :, 3]
     return raw, None
+
 
 def parse_args():
     p = argparse.ArgumentParser(description="3D image manipulation pipeline.")
@@ -464,22 +462,26 @@ def main():
     albedo_bgr = extract_albedo(img_bgr, out, input_alpha=input_alpha)
     img_h, img_w = albedo_bgr.shape[:2]
 
-    print(f"\n[2/6] Soft colour segmentation...")
-    palette, rgb_layers, alpha = run_soft_color_seg(albedo_bgr, input_alpha, layers_dir, device,tau=args.tau, gf_eps=args.gf_eps,
-                                                    min_vote=args.min_vote, min_eig_rep=args.min_eig_rep, min_eig_scu=args.min_eig_scu)
+    print("\n[2/6] Soft colour segmentation...")
+    palette, _, alpha = run_soft_color_seg(
+        albedo_bgr, input_alpha, layers_dir, device,
+        tau=args.tau, gf_eps=args.gf_eps,
+        min_vote=args.min_vote, min_eig_rep=args.min_eig_rep, min_eig_scu=args.min_eig_scu,
+    )
 
-    print(f"\n[3/6] Exporting alpha textures...")
+    print("\n[3/6] Exporting alpha textures...")
     export_alpha_textures(out, alpha, palette, (img_h, img_w))
 
-    print(f"\n[4/6] MoGe depth -> mesh...")
-    intrinsics, h, w = build_mesh(dst_img, out, args.moge_model, device, no_edge_cull=args.no_edge_cull, fill_mask=args.fill_mask)
+    print("\n[4/6] MoGe depth -> mesh...")
+    intrinsics, h, w = build_mesh(dst_img, out, args.moge_model, device,
+                                  no_edge_cull=args.no_edge_cull, fill_mask=args.fill_mask)
 
-    print(f"\n[5/6] Object masks + materials...")
+    print("\n[5/6] Object masks + materials...")
     obj_paths, obj_names = export_object_masks(Path(args.mask_dir), out, (h, w))
     materials = write_materials_json(out, obj_names)
     write_material_presets(out)
 
-    print(f"\n[6/6] Writing Blender scene config...")
+    print("\n[6/6] Writing Blender scene config...")
     write_scene_config(out, palette, h, w, intrinsics, obj_paths, materials)
 
     metadata = {
@@ -487,7 +489,8 @@ def main():
         "intrinsics": intrinsics,
         "intrinsic_model": "v2", "no_edge_cull": bool(args.no_edge_cull),
     }
-    json.dump(metadata, open(out / "metadata.json", "w"), indent=2)
+    with open(out / "metadata.json", "w") as f:
+        json.dump(metadata, f, indent=2)
 
     print(f"\nDone. Output: {out}/")
     print(f"Next: blender --background --python {out}/blender_palette.py -- --output_dir {out}")
