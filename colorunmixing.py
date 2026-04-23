@@ -7,10 +7,6 @@ from pathlib import Path
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 DTYPE = torch.float32
 
-def mahalanobis(x, mu, sigma_inv):
-    diff = x - mu.unsqueeze(0)  
-    return (diff @ sigma_inv * diff).sum(dim=-1)
-
 def ncg(f_fn, jac_fn, x, lamb, rho, maxiter=100, gtol=1e-6, step_tol=1e-8):
     P, D = x.shape
     x_cur = x.clone().clamp(0.0, 1.0)
@@ -315,44 +311,3 @@ def save_rgba_png(path, rgb01, alpha01):
 
     bgra_u8 = np.dstack([rgb_u8[:, :, 2], rgb_u8[:, :, 1], rgb_u8[:, :, 0], a_u8])
     cv.imwrite(str(path), bgra_u8)
-
-def export_layer_outputs(out_dir, input_rgb, final_as, final_colors, mus):
-    out_dir = Path(out_dir)
-    layers_dir = out_dir / "layers"
-    tex_dir    = out_dir / "alpha_textures"
-
-    out_dir.mkdir(parents=True, exist_ok=True)
-    layers_dir.mkdir(parents=True, exist_ok=True)
-    tex_dir.mkdir(parents=True, exist_ok=True)
-
-    H, W, N = final_as.shape
-
-    reconst = np.clip((final_as[..., None] * final_colors).sum(axis=2), 0.0, 1.0)
-
-    save_rgb_png(layers_dir / "target_img.png", input_rgb)
-    save_rgb_png(layers_dir / "reconst_img.png", reconst)
-
-    for i in range(N):
-        alpha_i = np.clip(final_as[:, :, i], 0.0, 1.0)
-        color_i = np.clip(final_colors[:, :, i], 0.0, 1.0)
-        save_rgba_png(layers_dir / f"layer-{i:02d}.png", color_i, alpha_i)
-
-    total = np.maximum(final_as.sum(axis=2, keepdims=True), 1e-6)
-    normed = np.clip(final_as / total, 0.0, 1.0)
-
-    palette = []
-    for i in range(N):
-        fname = f"weight_{i:02d}.png"
-
-        alpha16 = (normed[:, :, i] * 65535.0).round().astype(np.uint16)
-        cv.imwrite(str(tex_dir / fname), cv.flip(alpha16, 0))
-
-        mu_i = mus[i].detach().cpu().numpy() if torch.is_tensor(mus) else np.asarray(mus[i])
-        palette.append({
-            "cluster": i,
-            "color_rgb": [float(mu_i[0]), float(mu_i[1]), float(mu_i[2])],
-            "alpha_texture": f"alpha_textures/{fname}",
-        })
-
-    with open(out_dir / "palette.json", "w", encoding="utf-8") as f:
-        json.dump(palette, f, indent=2)

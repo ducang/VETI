@@ -95,7 +95,7 @@ def run_soft_color_seg(
     solver_device = UNMIX_DEVICE
     solver_dtype = UNMIX_DTYPE
     return_device = torch.device(device)
-    return_debug = False
+    return_debug = True
     alb = cv2.cvtColor(albedo_bgr, cv2.COLOR_BGR2RGB).astype(np.float64) / 255.0
     h, w = alb.shape[:2]
 
@@ -111,19 +111,19 @@ def run_soft_color_seg(
         neighborhood_radius=neighborhood_radius,
         return_debug=return_debug,
     )
+    
+    if return_debug:
+        color_distr_np, _ = color_model_out
+    else:
+        color_distr_np = color_model_out
 
-    color_distr = color_model_out
-
-    if not return_debug :
-        color_distr, _ = color_model_out
-
-    if len(color_distr) == 0:
+    if len(color_distr_np) == 0:
         raise RuntimeError("Colour model extraction produced zero distributions.")
 
-    N = len(color_distr)
+    N = len(color_distr_np)
     print(f"Colour model: {N} distributions ({time.time() - t0:.1f}s)")
 
-    color_distr = distr_to_torch(color_distr)
+    color_distr = distr_to_torch(color_distr_np)
     mus = torch.stack([d["mu"] for d in color_distr], dim=0).contiguous()
     sigma_invs = torch.stack([d["sigma_inv"] for d in color_distr], dim=0).contiguous()
 
@@ -172,7 +172,7 @@ def run_soft_color_seg(
         cv2.imwrite(str(layers_dir / f"layer-{i:02d}.png"), bgra_u8)
         cv2.imwrite(str(layers_dir / f"alpha-{i:02d}.png"), a_u8)
 
-    clipped_mus = np.clip(np.array([d["mu"] for d in color_distr]), 0.0, 1.0)
+    clipped_mus = np.clip(np.array([d["mu"] for d in color_distr_np]), 0.0, 1.0)
     swatch = np.zeros((50, N * 80, 3), dtype=np.uint8)
     for i, mu in enumerate(clipped_mus):
         swatch[:, i * 80:(i + 1) * 80] = (mu * 255.0).astype(np.uint8)
