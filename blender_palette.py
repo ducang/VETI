@@ -24,8 +24,6 @@ from pathlib import Path
 import mathutils
 
 
-# ── Config loading ──────────────────────────────────────────────────────────
-
 def parse_output_dir():
     argv = sys.argv
     if "--" in argv:
@@ -39,11 +37,11 @@ def parse_output_dir():
 
 
 def load_material_overrides(output_dir):
-    """Read materials.json → {obj_name: {channel: value}}. Empty if missing."""
     path = output_dir / "materials.json"
     if not path.exists():
         return {}
-    entries = json.load(open(path))
+    with open(path) as f:
+        entries = json.load(f)
     return {e["name"]: e for e in entries if e.get("name")}
 
 
@@ -51,14 +49,15 @@ def channel_value(overrides, obj_name, channel, default):
     return float(overrides.get(obj_name, {}).get(channel, default))
 
 
-# ── Scene setup helpers ─────────────────────────────────────────────────────
-
 def clear_scene():
     bpy.ops.object.select_all(action='SELECT')
     bpy.ops.object.delete(use_global=False)
-    for block in list(bpy.data.meshes):    bpy.data.meshes.remove(block)
-    for block in list(bpy.data.materials): bpy.data.materials.remove(block)
-    for block in list(bpy.data.cameras):   bpy.data.cameras.remove(block)
+    for block in list(bpy.data.meshes):
+        bpy.data.meshes.remove(block)
+    for block in list(bpy.data.materials):
+        bpy.data.materials.remove(block)
+    for block in list(bpy.data.cameras):
+        bpy.data.cameras.remove(block)
 
 
 def import_mesh(glb_path):
@@ -70,21 +69,13 @@ def import_mesh(glb_path):
 
 
 def find_socket(node, candidates):
-    """First socket name in `candidates` that exists on `node`, or None."""
     for name in candidates:
         if name in node.inputs:
             return node.inputs[name]
     return None
 
 
-# ── Palette material ────────────────────────────────────────────────────────
-
 def build_palette_material(cfg, overrides, output_dir, uv_name):
-    """Palette material with a bare Principled BSDF.
-
-    Base color = sum_i(alpha_tex_i * swatch_i).
-    Per-object channels = sum_j(obj_mask_j * channel_value_j).
-    """
     mat = bpy.data.materials.new(name="PaletteMaterial")
     mat.use_nodes = True
     tree = mat.node_tree
@@ -101,7 +92,6 @@ def build_palette_material(cfg, overrides, output_dir, uv_name):
 
     base_color = find_socket(bsdf, ['Base Color', 'Color'])
 
-    # Palette layer chain: base color = sum(alpha_i * swatch_i)
     accum = None
     for idx in range(cfg["num_layers"]):
         y = 200 - idx * 220
@@ -146,8 +136,10 @@ def build_palette_material(cfg, overrides, output_dir, uv_name):
             add_out = [s for s in add.outputs if s.type == 'RGBA'][0]
             add_fac.default_value = 1.0
             if idx == cfg["num_layers"] - 1:
-                if hasattr(add, 'use_clamp'):    add.use_clamp    = True
-                if hasattr(add, 'clamp_result'): add.clamp_result = True
+                if hasattr(add, 'use_clamp'):
+                    add.use_clamp = True
+                if hasattr(add, 'clamp_result'):
+                    add.clamp_result = True
             links.new(accum, add_in[0])
             links.new(mul_out, add_in[1])
             accum = add_out
@@ -155,7 +147,6 @@ def build_palette_material(cfg, overrides, output_dir, uv_name):
     if base_color is not None and accum is not None:
         links.new(accum, base_color)
 
-    # One UV+Tex per object mask, reused across all channel chains
     obj_mask_nodes = []
     for j, (name, rel) in enumerate(zip(cfg["obj_names"], cfg["obj_mask_paths"])):
         uv = nodes.new('ShaderNodeUVMap')
@@ -176,7 +167,6 @@ def build_palette_material(cfg, overrides, output_dir, uv_name):
         links.new(uv.outputs['UV'], tex.inputs['Vector'])
         obj_mask_nodes.append(tex)
 
-    # Per-channel chain: channel = sum_j(mask_j * value_j)
     defaults = cfg["default_material"]
     channels = cfg["material_channels"]
     socket_candidates = cfg["bsdf_socket_candidates"]
@@ -218,8 +208,6 @@ def build_palette_material(cfg, overrides, output_dir, uv_name):
 
     return mat
 
-
-# ── Camera / lighting / world ───────────────────────────────────────────────
 
 def setup_camera(intrinsics, img_w, img_h):
     bpy.ops.object.camera_add(location=(0, 0, 0))
@@ -282,7 +270,7 @@ def setup_lighting(mesh_obj):
         centre + mathutils.Vector((-orbit_r * 0.6, orbit_r * 0.4, orbit_r * 0.3)),
         centre)
 
-    # Orbit light animated around the mesh (stays in front)
+    # orbit light keeps moving in front of the mesh
     ORBIT_FRAMES = 120
     ORBIT_TILT = math.radians(30)
 
@@ -316,7 +304,7 @@ def setup_lighting(mesh_obj):
 
 
 def _get_fcurves(obj):
-    """Action fcurves across Blender 4.x / 5.x API shapes."""
+    # Blender 4.x has action.fcurves directly; 5.x uses layers/strips/channelbags
     ad = obj.animation_data
     if ad is None or ad.action is None:
         return []
@@ -344,11 +332,16 @@ def setup_world(scene):
     tree.links.new(bg.outputs['Background'], out_node.inputs['Surface'])
     try:
         sky = tree.nodes.new('ShaderNodeTexSky')
-        if hasattr(sky, 'sky_type'):      sky.sky_type = 'NISHITA'
-        if hasattr(sky, 'sun_elevation'): sky.sun_elevation = math.radians(25)
-        if hasattr(sky, 'sun_rotation'):  sky.sun_rotation = math.radians(45)
-        if hasattr(sky, 'air_density'):   sky.air_density = 1.0
-        if hasattr(sky, 'dust_density'):  sky.dust_density = 2.0
+        if hasattr(sky, 'sky_type'):
+            sky.sky_type = 'NISHITA'
+        if hasattr(sky, 'sun_elevation'):
+            sky.sun_elevation = math.radians(25)
+        if hasattr(sky, 'sun_rotation'):
+            sky.sun_rotation = math.radians(45)
+        if hasattr(sky, 'air_density'):
+            sky.air_density = 1.0
+        if hasattr(sky, 'dust_density'):
+            sky.dust_density = 2.0
         tree.links.new(sky.outputs['Color'], bg.inputs['Color'])
         bg.inputs['Strength'].default_value = 0.3
     except Exception:
@@ -379,11 +372,10 @@ def setup_render_settings(scene):
     scene.view_settings.exposure = 0.0
 
 
-# ── Main ────────────────────────────────────────────────────────────────────
-
 def main():
     output_dir = parse_output_dir()
-    cfg = json.load(open(output_dir / "scene_config.json"))
+    with open(output_dir / "scene_config.json") as f:
+        cfg = json.load(f)
     overrides = load_material_overrides(output_dir)
 
     clear_scene()
