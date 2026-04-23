@@ -1,16 +1,3 @@
-#!/usr/bin/env python3
-"""
-Pipeline for 3D-based image manipulation.
-
-Given an input photograph and per-object segmentation masks, this script:
-  1. Decomposes the image into an albedo via intrinsic decomposition.
-  2. Runs FSCS soft-colour segmentation on the albedo to get a palette.
-  3. Exports palette alpha-weight textures and object masks.
-  4. Estimates depth with MoGe and builds a textured mesh.
-  5. Generates a Blender scene with editable palette colours and
-     per-object material properties (roughness, metallic, coat, sheen).
-"""
-
 import argparse
 import json
 import math
@@ -83,7 +70,7 @@ def extract_albedo(img_bgr, out_dir, input_alpha=None):
 
     albedo_bgr = (cv2.cvtColor(albedo_rgb, cv2.COLOR_RGB2BGR) * 255).round().astype(np.uint8)
     cv2.imwrite(str(out_dir / "albedo.png"), albedo_bgr)
-    print(f"  albedo -> {out_dir}/albedo.png")
+    print(f"albedo -> {out_dir}/albedo.png")
     return albedo_bgr
 
 
@@ -108,7 +95,7 @@ def run_soft_color_seg(
     solver_device = UNMIX_DEVICE
     solver_dtype = UNMIX_DTYPE
     return_device = torch.device(device)
-
+    return_debug = False
     alb = cv2.cvtColor(albedo_bgr, cv2.COLOR_BGR2RGB).astype(np.float64) / 255.0
     h, w = alb.shape[:2]
 
@@ -122,17 +109,21 @@ def run_soft_color_seg(
         min_eig_rep=min_eig_rep,
         gf_radius=gf_radius,
         neighborhood_radius=neighborhood_radius,
-        return_debug=False,
+        return_debug=return_debug,
     )
-    color_distr_np = color_model_out
 
-    if len(color_distr_np) == 0:
+    color_distr = color_model_out
+
+    if not return_debug :
+        color_distr, _ = color_model_out
+
+    if len(color_distr) == 0:
         raise RuntimeError("Colour model extraction produced zero distributions.")
 
-    N = len(color_distr_np)
-    print(f"  Colour model: {N} distributions ({time.time() - t0:.1f}s)")
+    N = len(color_distr)
+    print(f"Colour model: {N} distributions ({time.time() - t0:.1f}s)")
 
-    color_distr = distr_to_torch(color_distr_np)
+    color_distr = distr_to_torch(color_distr)
     mus = torch.stack([d["mu"] for d in color_distr], dim=0).contiguous()
     sigma_invs = torch.stack([d["sigma_inv"] for d in color_distr], dim=0).contiguous()
 
@@ -141,20 +132,20 @@ def run_soft_color_seg(
 
     t0 = time.time()
     alphas_flat, colors_flat = solver_SCU(c, mus, sigma_invs, sigmaa=sigmaa)
-    print(f"  SCU unmixing: {time.time() - t0:.1f}s")
+    print(f"SCU unmixing: {time.time() - t0:.1f}s")
 
     alphas_np = alphas_flat.detach().cpu().numpy().reshape(h, w, N)
     colors_np = colors_flat.detach().cpu().numpy().reshape(h, w, N, 3)
 
     t0 = time.time()
     matreg_np = matte_regu(alb, alphas_np, rad=matte_radius)
-    print(f"  Matte regularisation: {time.time() - t0:.1f}s")
+    print(f"Matte regularisation: {time.time() - t0:.1f}s")
 
     t0 = time.time()
     matreg_flat = torch.tensor(matreg_np.reshape(P, N), device=solver_device, dtype=solver_dtype)
     colors_init = torch.tensor(colors_np.reshape(P, N, 3), device=solver_device, dtype=solver_dtype)
     final_a_flat, final_c_flat = color_refine(c, mus, sigma_invs, matreg_flat, colors_init)
-    print(f"  Colour refinement: {time.time() - t0:.1f}s")
+    print(f"Colour refinement: {time.time() - t0:.1f}s")
 
     final_alphas = final_a_flat.detach().cpu().numpy().reshape(h, w, N)
     final_colors = final_c_flat.detach().cpu().numpy().reshape(h, w, N, 3)
@@ -168,12 +159,7 @@ def run_soft_color_seg(
             ia = cv2.resize(ia, (w, h), interpolation=cv2.INTER_LINEAR)
         final_alphas = np.clip(final_alphas * ia[:, :, None], 0.0, 1.0)
 
-    # Save layers and reconstruction
-    reconst = np.clip((final_alphas[..., None] * final_colors).sum(axis=2), 0.0, 1.0)
-
     cv2.imwrite(str(layers_dir / "target_img.png"), albedo_bgr)
-    reconst_bgr = (cv2.cvtColor(reconst.astype(np.float32), cv2.COLOR_RGB2BGR) * 255.0).round().astype(np.uint8)
-    cv2.imwrite(str(layers_dir / "reconst_img.png"), reconst_bgr)
 
     for i in range(N):
         a = np.clip(final_alphas[:, :, i], 0.0, 1.0)
@@ -186,16 +172,16 @@ def run_soft_color_seg(
         cv2.imwrite(str(layers_dir / f"layer-{i:02d}.png"), bgra_u8)
         cv2.imwrite(str(layers_dir / f"alpha-{i:02d}.png"), a_u8)
 
-    clipped_mus = np.clip(np.array([d["mu"] for d in color_distr_np]), 0.0, 1.0)
+    clipped_mus = np.clip(np.array([d["mu"] for d in color_distr]), 0.0, 1.0)
     swatch = np.zeros((50, N * 80, 3), dtype=np.uint8)
     for i, mu in enumerate(clipped_mus):
         swatch[:, i * 80:(i + 1) * 80] = (mu * 255.0).astype(np.uint8)
     cv2.imwrite(str(layers_dir / "palette.png"), cv2.cvtColor(swatch, cv2.COLOR_RGB2BGR))
 
-    print(f"  Saved {N} layers + reconstruction -> {layers_dir}/")
+    print(f"Saved {N} layers + reconstruction -> {layers_dir}/")
 
-    alpha_t = torch.from_numpy(final_alphas.transpose(2, 0, 1).astype(np.float32)).unsqueeze(1).to(return_device)
-    rgb_layers_t = torch.from_numpy(np.clip(final_colors, 0.0, 1.0).transpose(2, 3, 0, 1).astype(np.float32)).to(return_device)
+    alpha = torch.from_numpy(final_alphas.transpose(2, 0, 1).astype(np.float32)).unsqueeze(1).to(return_device)
+    rgb_layers = torch.from_numpy(np.clip(final_colors, 0.0, 1.0).transpose(2, 3, 0, 1).astype(np.float32)).to(return_device)
 
     palette = [
         {
@@ -204,7 +190,7 @@ def run_soft_color_seg(
         }
         for i, mu in enumerate(clipped_mus)
     ]
-    return palette, rgb_layers_t, alpha_t
+    return palette, rgb_layers, alpha
 
 def export_alpha_textures(out_dir, alpha, palette, image_hw):
     tex_dir = out_dir / "alpha_textures"
@@ -292,7 +278,7 @@ def write_materials_json(out_dir, obj_names):
 
     with open(mp, "w") as f:
         json.dump(materials, f, indent=2)
-    print(f"  Wrote materials.json ({len(materials)} entries)")
+    print(f"Wrote materials.json ({len(materials)} entries)")
     return materials
 
 
@@ -300,11 +286,10 @@ def write_material_presets(out_dir):
     mp = out_dir / "materials_presets.json"
     with open(mp, "w") as f:
         json.dump(MATERIAL_PRESETS, f, indent=2)
-    print(f"  Wrote {len(MATERIAL_PRESETS)} material presets")
+    print(f"Wrote {len(MATERIAL_PRESETS)} material presets")
 
 
-def build_mesh(image_path, out_dir, moge_model_name, device,
-               no_edge_cull=False, fill_mask=False):
+def build_mesh(image_path, out_dir, moge_model_name, device, no_edge_cull=False, fill_mask=False):
     arr = cv2.imread(str(image_path), cv2.IMREAD_UNCHANGED)
     if arr is None:
         raise FileNotFoundError(f"Cannot read: {image_path}")
@@ -376,7 +361,7 @@ def build_mesh(image_path, out_dir, moge_model_name, device,
     glb_path = mesh_dir / "scene.glb"
     tmesh.export(str(glb_path))
     cv2.imwrite(str(mesh_dir / "texture_original.png"), bgr)
-    print(f"  Saved mesh -> {glb_path}")
+    print(f"Saved mesh -> {glb_path}")
     return intrinsics, h, w
 
 
@@ -400,10 +385,10 @@ def write_scene_config(out_dir, palette, h, w, intrinsics, obj_mask_paths, mater
     }
     with open(out_dir / "scene_config.json", "w") as f:
         json.dump(config, f, indent=2)
-    print("  Wrote scene_config.json")
+    print("Wrote scene_config.json")
 
     shutil.copy2(BLENDER_SCRIPT, out_dir / BLENDER_SCRIPT.name)
-    print(f"  Copied {BLENDER_SCRIPT.name} -> {out_dir}/")
+    print(f"Copied {BLENDER_SCRIPT.name} -> {out_dir}/")
 
 def load_image_with_alpha(img_path):
     raw = cv2.imread(img_path, cv2.IMREAD_UNCHANGED)
@@ -473,8 +458,7 @@ def main():
     export_alpha_textures(out, alpha, palette, (img_h, img_w))
 
     print("\n[4/6] MoGe depth -> mesh...")
-    intrinsics, h, w = build_mesh(dst_img, out, args.moge_model, device,
-                                  no_edge_cull=args.no_edge_cull, fill_mask=args.fill_mask)
+    intrinsics, h, w = build_mesh(dst_img, out, args.moge_model, device, no_edge_cull=args.no_edge_cull, fill_mask=args.fill_mask)
 
     print("\n[5/6] Object masks + materials...")
     obj_paths, obj_names = export_object_masks(Path(args.mask_dir), out, (h, w))
@@ -494,7 +478,7 @@ def main():
 
     print(f"\nDone. Output: {out}/")
     print(f"Next: blender --background --python {out}/blender_palette.py -- --output_dir {out}")
-    print(f"      (edit materials.json in {out}/ to tune per-object channels, then re-run)")
+    print(f"(edit materials.json in {out}/ to tune per-object channels, then re-run)")
 
 
 if __name__ == "__main__":
