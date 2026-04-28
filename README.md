@@ -3,15 +3,19 @@
 Takes a photo and per-object segmentation masks, runs intrinsic decomposition + soft colour unmixing (FSCS/SCU), builds a MoGe depth mesh, and outputs a self-contained Blender scene with an editable colour palette and per-object material controls.
 
 ---
-<p align="center">
-  <img src="input_data/sample/image_15.jpg" width="45%" />
-  <img src="input_data/sample/f.png" width="45%" />
-</p>
+<table align="center">
+  <tr>
+    <td align="center">
+      <img src="input_data/sample/image_15.jpg" width="400"/><br>
+      <sub><b>Input image</b></sub>
+    </td>
+    <td align="center">
+      <img src="input_data/sample/f.png" width="400"/><br>
+      <sub><b>Output image</b></sub>
+    </td>
+  </tr>
+</table>
 
-
-<p align="left">
-  <sub>&nbsp;&nbsp;&nbsp; <b>Input image</b> &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; <b>Output image</b></sub>
-</p>
 ## 1. Clone the repository 
 
 The repo pulls `MoGe/` and `Intrinsic/` as git submodules — clone recursively, or init after cloning.
