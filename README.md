@@ -9,7 +9,7 @@ Takes a photo and per-object segmentation masks, runs intrinsic decomposition + 
 </p>
 
 
-<p align="center">
+<p align="left">
   <sub><b>Input image</b> &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; <b>Output image</b></sub>
 </p>
 ## 1. Clone the repository 
