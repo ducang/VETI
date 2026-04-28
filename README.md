@@ -7,6 +7,11 @@ Takes a photo and per-object segmentation masks, runs intrinsic decomposition + 
   <img src="input_data/sample/image_15.jpg" width="45%" />
   <img src="input_data/sample/f.png" width="45%" />
 </p>
+
+
+<p align="center">
+  <sub><b>Input image</b> &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; <b>Output image</b></sub>
+</p>
 ## 1. Clone the repository 
 
 The repo pulls `MoGe/` and `Intrinsic/` as git submodules — clone recursively, or init after cloning.
